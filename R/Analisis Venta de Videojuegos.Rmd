@@ -1,0 +1,880 @@
+---
+title: "Analisis venta de videojuegos"
+output:
+  flexdashboard::flex_dashboard:
+      orientation: rows
+      vertical_layout: fill
+runtime: shiny
+---
+
+```{css, echo=FALSE}
+body {
+  background-color: azure;  
+  text-align: justify; 
+  margin: 0 auto;
+  width: 98%;
+}
+
+.navbar {
+  background-color: midnightblue;  
+  color: white;
+}
+
+h1 {  
+  text-align: center; 
+  font-weight: bold;   
+}
+
+.dataTables_wrapper {
+  width: 80% !important;
+  margin: auto;
+}
+
+.dataTables_wrapper {
+  width: 100% !important;
+}
+
+.dataTables_scrollBody {
+  height: 600px !important;
+}
+
+```
+
+```{css, echo=FALSE}
+.chart-shim, .chart-wrapper .chart-stage, .tab-content, .sourceCode {
+  overflow: auto !important;
+}
+```
+
+```{r}
+library(flexdashboard)
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(DT)
+library(plotly)
+library(leaflet)
+library(wordcloud)
+library(tm)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(treemapify)
+```
+
+# Introducción
+
+<h1>Analisis venta de videojuegos</h1>
+El mercado de los videojuegos ha evolucionado hasta convertirse en una de las industrias de entretenimiento más relevantes a nivel mundial, con una amplia variedad de plataformas, géneros y públicos. Este trabajo tiene como objetivo analizar el comportamiento del mercado de videojuegos en las diferentes plataformas, con un enfoque especial en la comparación entre juegos de PlayStation 4 y Xbox One, utilizando para ello conjuntos de datos que recopilan información detallada sobre ventas globales y regionales, géneros, años de lanzamiento y otros atributos clave.
+
+A lo largo del análisis, se emplearán herramientas del ecosistema tidyverse, tidymodels y visualizaciones interactivas en Shiny, con el propósito de responder preguntas estratégicas sobre el mercado y descubrir patrones significativos que orienten la toma de decisiones. Este enfoque combina aspectos estadísticos, analíticos y computacionales para ofrecer una visión integral del comportamiento de los videojuegos en diferentes contextos.
+
+Los objetivos específicos de este trabajo son:
+
+  - Realizar la limpieza y tratamiento de datos provenientes de distintas fuentes.
+
+  - Desarrollar un análisis exploratorio que permita descubrir patrones de ventas por género, región y año.
+
+  - Comparar el comportamiento de ventas entre PlayStation 4 y Xbox One, identificando similitudes y diferencias clave.
+
+  - Diseñar un dashboard interactivo con Shiny que facilite la visualización y exploración dinámica de los resultados obtenidos.
+
+Este enfoque combina aspectos estadísticos, analíticos y computacionales para ofrecer una visión completa del mercado de videojuegos. 
+
+## Col
+
+### Variables
+
+| Nombre de la variable | Descripcion |
+|------------------------------------|------------------------------------|
+| **Name** | Titulo del videojuego |
+| **Platform** | Plataforma de salida del videojuego |
+| **Year_of_Release** | Año de salida del videojuego |
+| **Genre** | Genero del videojuego |
+| **Publisher** | Publicador del videojuego |
+| **NA_Sales** | Ventas de videojuegos en America del Norte (en millones) |
+| **EU_Sales** | Ventas de videojuegos en Europa (en millones) |
+| **JP_Sales** | Ventas de videojuegos en Japon (en millones) |
+| **Other_Sales** | Ventas de videojuegos en otros paises (en millones) |
+| **Global_Sales** | Total de ventas en todo el mundo |
+| **Critic_Score** | Puntuación dada por los medios de comunicacion |
+| **User_Score** | Puntuación dada por los usuarios |
+| **User_Count** | Numero de criticas dadas por el usuarios |
+| **Developer** | Desarrollador del videojuego |
+| **Rating** | Clasificación de videojuegos basada en las calificaciones de ESRB |
+
+### Conjuntos de datos
+
+#### VENTAS GENERALES DE VIDEOJUEGOS
+```{r games, echo = FALSE}
+
+games_sales <- read_csv("datos/Video_Games_Sales_as_at_22_Dec_2016.csv", 
+                        col_types = "cfnffdddddiidiff",
+                        na = c("N/A", ""))
+datatable(
+  head(games_sales, 50),
+  extensions = "FixedHeader",
+  options = list(
+    scrollX = TRUE,
+    pageLength = 25,
+    lengthMenu = c(25, 50, 100)
+  ),
+  rownames = FALSE
+)
+```
+
+#### VENTAS DE VIDEOJUEGOS DE PS4
+```{r ps4, echo = FALSE}
+
+ps4_sales <- read_csv("datos/PS4_GamesSales.csv",
+                      col_types = "cnffddddd",
+                      na = "N/A") %>% mutate(Platform = "PS4")
+datatable(
+  head(ps4_sales, 50),
+  extensions = "FixedHeader",
+  options = list(
+    scrollX = TRUE,
+    pageLength = 25,
+    lengthMenu = c(25, 50, 100)
+  ),
+  rownames = FALSE
+)
+```
+
+#### VENTAS DE VIDEOJUEGOS DE XBOX
+```{r xbox, echo = FALSE}
+
+xbox_sales <- read_csv("datos/XboxOne_GameSales.csv",
+                       col_types = "ncnffddddd",
+                       na = "N/A") %>% mutate(Platform = "Xbox One")
+datatable(
+  head(xbox_sales, 50),
+  extensions = "FixedHeader",
+  options = list(
+    scrollX = TRUE,
+    pageLength = 25,
+    lengthMenu = c(25, 50, 100)
+  ),
+  rownames = FALSE
+)
+```
+
+
+```{r na, echo = FALSE}
+games <- bind_rows(ps4_sales, xbox_sales)
+```
+
+# Ventas globales por plataforma {data-navmenu="Analisis y Graficos"}
+
+### Datos
+
+Con el objetivo de identificar qué plataformas han concentrado la mayor cantidad de ventas a nivel global, se realizó un proceso de agrupación y resumen de los datos disponibles. Para ello, se organizaron los registros de ventas según la plataforma a la que pertenece cada videojuego y se calculó el total acumulado de ventas para cada una.
+
+```{r}
+sales_by_platform <- games_sales %>%
+  group_by(Platform) %>%
+  summarise(Global_Sales = sum(Global_Sales)) %>%
+  arrange(desc(Global_Sales))
+
+sales_by_platform %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+### Grafico
+
+```{r}
+ggplot(sales_by_platform, aes(x = reorder(Platform, Global_Sales), y = Global_Sales)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Ventas globales por plataforma", x = "Plataforma", y = "Ventas (millones)")
+```
+
+# Número de Juegos por Género {data-navmenu="Analisis y Graficos"}
+### Cantidad de juegos por género
+
+Con el propósito de comprender la variedad y la presencia de distintos géneros dentro del mercado de videojuegos, se realizó una clasificación de los títulos según su género, excluyendo aquellos registros que no cuentan con esta información. A partir de esta organización, se contabilizó cuántos juegos pertenecen a cada género.
+
+```{r}
+
+vdo_genre <- games_sales %>%
+  filter(Genre != 'NA') %>%
+  group_by(Genre) %>%
+  summarize(numero_de_juegos_vendidos = n()) %>%
+  arrange(Genre)
+
+vdo_genre %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+### Grafico 
+```{r}
+ggplot(vdo_genre, aes(reorder(Genre, numero_de_juegos_vendidos), numero_de_juegos_vendidos)) +
+  geom_col(fill = 'plum', col = 'black') +
+  labs(x = 'Género', 
+       y = 'Número de Juegos', 
+       title = 'Número de Juegos Vendidos por Género', 
+       subtitle = 'Datos de 1980 a 2016') +
+  coord_flip() +
+  geom_label(aes(label = numero_de_juegos_vendidos, y = numero_de_juegos_vendidos + 100))
+```
+
+# Ventas por region {data-navmenu="Analisis y Graficos"}
+## Fila {.tabset}
+Para entender mejor cómo se distribuyen las ventas de videojuegos según las regiones geográficas, se ha desglosado el análisis en tres enfoques: por género, por plataforma y por desarrollador. Se clasificaron los videojuegos por género y se calcularon las ventas acumuladas en cuatro grandes regiones: Norteamérica, Europa, Japón y el resto del mundo.
+
+### Según el género
+<div style="display: flex; justify-content: space-between;">
+
+  <div style="width: 48%; padding-right: 5px;">
+```{r}
+vdo_sale <- games_sales %>%
+  filter(Genre != 'NA') %>%
+  group_by(Genre) %>%
+  summarize(North_America = sum(NA_Sales, na.rm = TRUE),
+            Europe = sum(EU_Sales, na.rm = TRUE),
+            Japan = sum(JP_Sales, na.rm = TRUE),
+            Others = sum(Other_Sales, na.rm = TRUE)) %>%
+  pivot_longer(North_America:Others,
+               names_to = 'Region',
+               values_to = 'Sales')
+
+vdo_sale %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+  </div>
+
+  <div style="width: 60%; padding-left: 5px;">
+
+
+```{r}
+ggplot(vdo_sale, aes(reorder(Genre, Sales), Sales, fill = Region)) + 
+  geom_col(col = 'black') +
+  labs(x = 'Genero', y = 'Ventas (Millones)', 
+       title = 'Número de ventas por género desglosado por Región', 
+       subtitle = 'Datos de 1980 a 2016') +
+  coord_flip() +
+  geom_label(aes(label = stat(y),
+              group = Genre), 
+          stat = 'summary',
+          fun = sum,
+           hjust = -0.1,
+           show.legend = FALSE
+  ) +
+  ylim(0,2500)
+```
+
+  </div>
+
+</div>
+
+### Según la plataforma
+<div style="display: flex; justify-content: space-between;">
+
+  <div style="width: 48%; padding-right: 5px;">
+```{r}
+vdo_sale2 <- games_sales %>%
+group_by(Platform) %>%
+summarize(North_America = sum(NA_Sales),
+         Europe = sum(EU_Sales),
+         Japan = sum(JP_Sales),
+         Others = sum(Other_Sales)) %>%
+pivot_longer(North_America:Others,
+             names_to='Region',
+            values_to='Sales')
+
+vdo_sale2 %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+  </div>
+
+  <div style="width: 60%; padding-left: 5px;">
+
+
+```{r}
+ggplot(vdo_sale2,aes(reorder(Platform,Sales),
+                    Sales,fill=Region)) + 
+geom_col(col='black') +
+coord_flip()  +
+labs(x = 'Plataforma', y = 'Ventas (Millones)', 
+       title = 'Número de ventas por plataforma desglosado por Región', subtitle = 'Datos de 1980 a 2016') + 
+geom_label(aes(label = stat(y),
+              group = Platform), 
+          stat = 'summary',
+          fun = sum,
+           hjust = -0.2,
+           show.legend = FALSE
+  ) +
+ylim(0,1500)
+
+```
+
+  </div>
+
+</div>
+
+### Según el desarrollador
+<div style="display: flex; justify-content: space-between;">
+
+  <div style="width: 48%; padding-right: 5px;">
+  
+```{r}
+top_publishers <- games_sales %>%
+  pivot_longer(NA_Sales:Other_Sales,
+               names_to = 'Region',
+               values_to = 'Sales') %>%
+  group_by(Publisher) %>%
+  summarize(TotalSales = sum(Sales, na.rm = TRUE)) %>%
+  arrange(desc(TotalSales)) %>%
+  slice(1:15)
+
+vdo_sale3 <- games_sales %>%
+  pivot_longer(NA_Sales:Other_Sales,
+               names_to = 'Region',
+               values_to = 'Sales') %>%
+  mutate(
+    Region = case_when(
+      Region == "NA_Sales" ~ "North America",
+      Region == "EU_Sales" ~ "Europe",
+      Region == "JP_Sales" ~ "Japan",
+      Region == "Other_Sales" ~ "Others",
+      TRUE ~ Region
+    )
+  ) %>%
+  filter(Publisher %in% top_publishers$Publisher) %>%
+  group_by(Publisher, Region) %>%
+  summarize(Sales = sum(Sales, na.rm = TRUE)) %>%
+  arrange(desc(Sales))
+
+vdo_sale3 %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+
+
+  </div>
+
+  <div style="width: 60%; padding-left: 5px;">
+
+
+```{r}
+ggplot(vdo_sale3,aes(reorder(Publisher,Sales),Sales,fill=Region)) + 
+geom_col(col='black') +
+coord_flip() +
+labs(x = 'Desarrollador', y = 'Ventas (Millones)', 
+       title = 'Número de ventas por desarrollador desglosado por Región', subtitle = 'Datos de 1980 a 2016') + 
+geom_label(aes(label = stat(y),
+              group = Publisher), 
+          stat = 'summary',
+          fun = sum,
+           hjust = -0.2,
+           show.legend = FALSE
+  ) +
+ylim(0,2500)
+
+```
+
+  </div>
+
+</div>
+
+# Top 5 desarrolladores por genero {data-navmenu="Analisis y Graficos"}
+
+### Datos
+Con el fin de identificar las tendencias en cuanto a los géneros más publicados o más exitosos, se seleccionaron cinco de los desarrolladores más relevantes del mercado: Nintendo, Electronic Arts, Activision, Sony Computer Entertainment y Ubisoft. Para explorar qué tipos de videojuegos predominan en el catálogo de cada compañía.
+
+
+```{r}
+vdo_top5_genre <- games_sales %>%
+select(Genre,Global_Sales,Publisher) %>%
+filter(Publisher==c('Nintendo','Electronic Arts','Activision','Sony Computer Entertainment','Ubisoft')) %>%
+group_by(Publisher,Genre) %>%
+arrange(desc(Global_Sales))
+
+vdo_top5_genre %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+### Grafico
+```{r}
+ggplot(vdo_top5_genre,aes(Genre,Global_Sales,fill=Genre)) +
+geom_col(width=0.4, position = position_dodge(width=0.5)) +
+facet_wrap(~Publisher,nrow=3,ncol=2,scales = "free") +
+coord_flip() +
+labs(x='Genero',y='Ventas (Millones)',
+     title='Número de ventas de los desarrolladores (top 5) por género',
+     subtitle = 'Datos de 1980 a 2016')
+```
+
+
+
+# PS4 vs XBOX {.storyboard games_sales-orientation=rows}
+
+### Top 10 
+
+
+<div style="display: flex; justify-content: space-between;">
+
+  <div style="width: 48%;">
+
+#### Top 10 (PS4)
+```{r}
+top_ps4 <- ps4_sales %>%
+  arrange(desc(Global)) %>%
+  slice(1:10) %>%
+  mutate(Platform = "PS4")
+  
+
+top_ps4 %>%
+  select(-Platform) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+  </div>
+
+  <div style="width: 48%;">
+
+
+#### Top 10 (XBOX)
+```{r}
+top_xbox <- xbox_sales %>%
+  arrange(desc(Global)) %>%
+  slice(1:10) %>%
+  mutate(Platform = "Xbox One")
+
+top_xbox %>%
+  select(-Platform, -Pos) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "condensed","HOLD_position"), 
+                position = "center",
+                full_width = FALSE)
+```
+
+  </div>
+
+</div>
+
+
+#### Top 10 juegos más vendidos por consola
+<div style="text-align: center;">
+```{r}
+top_games <- bind_rows(top_ps4, top_xbox)
+
+ggplot(top_games, aes(x = reorder(Game, Global), y = Global, fill = Platform)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  labs(title = "Top 10 Juegos más vendidos por consola", x = "Juego", y = "Ventas globales (millones)") +
+  theme_minimal() 
+```
+</div>
+
+
+### Participación por region
+
+```{r}
+ps4_regiones <- ps4_sales %>%
+  summarise(
+    N_A = sum(`North America`, na.rm = TRUE),
+    EU = sum(Europe, na.rm = TRUE),
+    JP = sum(Japan, na.rm = TRUE),
+    RW = sum(`Rest of World`, na.rm = TRUE)
+  ) %>% 
+  pivot_longer(everything(), names_to = "Region", values_to = "Sales") %>%
+  mutate(Platform = "PS4")
+
+xbox_regiones <- xbox_sales %>%
+  summarise(
+    N_A = sum(`North America`, na.rm = TRUE),
+    EU = sum(Europe, na.rm = TRUE),
+    JP = sum(Japan, na.rm = TRUE),
+    RW = sum(`Rest of World`, na.rm = TRUE)
+  ) %>% 
+  pivot_longer(everything(), names_to = "Region", values_to = "Sales") %>%
+  mutate(Platform = "Xbox One")
+
+ventas_regionales <- bind_rows(ps4_regiones, xbox_regiones)
+
+
+ggplot(ventas_regionales, aes(x = Region, y = Sales, fill = Platform)) +
+  geom_col(position = "dodge") +
+  labs(title = "Distribución regional de ventas", y = "Ventas (millones)") +
+  theme_minimal()
+```
+
+***
+En este gráfico se observa claramente que las ventas de videojuegos de la PS4 en cualquier region es mucho mayor que la de las ventas de la XBOX
+
+### Top 20 Publisher
+
+<div style="width: 900px; height: 450px; margin: 0 auto;">
+```{r}
+selectInput("plataforma_pub", "Selecciona plataforma:", choices = unique(games$Platform))
+
+renderPlot({
+  datos <- games %>%
+    filter(Platform == input$plataforma_pub, !is.na(Publisher)) %>%
+    group_by(Publisher) %>%
+    summarise(Global_Ventas = sum(Global, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(Global_Ventas)) %>%
+    slice_head(n = 20)
+
+  ggplot(datos, aes(area = Global_Ventas, fill = Publisher, label = Publisher)) +
+    geom_treemap() +
+    geom_treemap_text(colour = "white", place = "centre", grow = TRUE) +
+    theme(legend.position = "none")
+})
+```
+</div> 
+
+***
+Para obtener una visión más específica del papel que desempeñan los distintos desarrolladores en cada plataforma, se desarrolló una visualización que permite identificar las empresas con mayor volumen de ventas globales dentro de una plataforma seleccionada.
+
+Los resultados se presentan a través de un treemap, una herramienta visual que permite representar datos jerárquicos de manera intuitiva. Cada bloque representa una editorial, y su tamaño es proporcional al volumen total de ventas en la plataforma seleccionada.
+
+
+
+
+### Generos más populares
+<div style="display: flex; justify-content: space-between;">
+
+  <div style="width: 48%;">
+```{r}
+ps4_sales %>%
+  group_by(Genre) %>%
+  summarise(Ventas = sum(Global, na.rm = TRUE)) %>%
+  ggplot(aes(x = fct_reorder(Genre, Ventas), y = Ventas)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(title = "Géneros más vendidos en PS4", x = "Género", y = "Ventas") +
+  theme_minimal()
+```
+  </div>
+
+  <div style="width: 48%;">
+
+```{r}
+xbox_sales %>%
+  group_by(Genre) %>%
+  summarise(Ventas = sum(Global, na.rm = TRUE)) %>%
+  ggplot(aes(x = fct_reorder(Genre, Ventas), y = Ventas)) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  labs(title = "Géneros más vendidos en Xbox One", x = "Género", y = "Ventas") +
+  theme_minimal()
+```
+
+  </div>
+
+</div>
+
+Para entender las preferencias de los usuarios en dos de las principales plataformas de videojuegos, se analizaron los géneros con mayores ventas globales en PlayStation 4 y Xbox One. En ambos casos, se agruparon los juegos por género y se calcularon las ventas totales acumuladas.
+
+Vemos que para ambas plataformas en el top 3 se sitúan los mismos géneros. Siendo los juegos de acción los más vendidos para PS4 y los de disparos para XBOX  
+
+### Evolución de Ventas
+```{r}
+games %>%
+  filter(!is.na(Year)) %>%
+  group_by(Platform, Year) %>%
+  summarise(Ventas = sum(Global, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = Year, y = Ventas, color = Platform)) +
+  geom_line(size = 1.2) +
+  labs(title = "Evolución de Ventas por Año", x = "Año", y = "Ventas (millones)") +
+  theme_minimal()
+```
+
+***
+Este análisis explora cómo han evolucionado las ventas de videojuegos desde sus años de lanzamiento hasta la fecha más reciente disponible. Para ello se calcularon las ventas globales totales para cada año dentro de cada plataforma.
+
+# Gráficos interactivos 
+
+```{r app, shiny=TRUE}
+ui <- fluidPage(
+  titlePanel("Análisis de Ventas de Videojuegos"),
+  
+  tabsetPanel(
+    tabPanel("Ventas Globales",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("plataforma", "Plataforma:", choices = unique(games_sales$Platform), selected = "PS4"),
+                 selectInput("genero", "Género:", choices = unique(games_sales$Genre), selected = "Action"),
+                 sliderInput("anio", "Rango de años:", min = min(games_sales$Year_of_Release, na.rm = TRUE), 
+                             max = max(games_sales$Year_of_Release, na.rm = TRUE), value = c(2000, 2016), step = 1)
+               ),
+               mainPanel(
+                 plotlyOutput("ventasPlot")
+               )
+             )
+    ),
+    
+    tabPanel("Ventas por Plataforma según Género",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("genero_ventas", "Género:", choices = unique(games_sales$Genre), selected = "Action")
+               ),
+               mainPanel(
+                 plotlyOutput("ventasGenero")
+               )
+             )
+    ),
+    
+    tabPanel("Ventas de Juegos por Región",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("nombre_juego", "Nombre del Juego:", choices = unique(games_sales$Name), selected = unique(games_sales$Name)[1]),
+                 checkboxGroupInput("region_comp", "Regiones de ventas:", choices = c("NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales"), selected = c("NA_Sales", "EU_Sales"))
+               ),
+               mainPanel(
+                 plotlyOutput("regionPlot")
+               )
+             )
+    ),
+    
+    tabPanel("Críticas por Género",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("genero_critica", "Género:", choices = unique(games_sales$Genre), selected = "Action")
+               ),
+               mainPanel(
+                 plotlyOutput("lineCritica")
+               )
+             )
+    ),
+    
+    tabPanel("Tabla Ventas Globales",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("plataforma_tabla", "Plataforma:", choices = unique(games_sales$Platform), selected = "PS4"),
+                 selectInput("genero_tabla", "Género:", choices = unique(games_sales$Genre), selected = "Action"),
+                 sliderInput("anio_tabla", "Rango de años:", min = min(games_sales$Year_of_Release, na.rm = TRUE),
+                             max = max(games_sales$Year_of_Release, na.rm = TRUE), value = c(2000, 2016), step = 1)
+               ),
+               mainPanel(
+                 DTOutput("tablaJuegos")
+               )
+             )
+    ),
+    
+    tabPanel("Distribución de Ventas por Plataforma",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("plataforma_mapa", "Plataforma:", choices = unique(games_sales$Platform), selected = "PS4"),
+                 sliderInput("anio_mapa", "Rango de años:", min = min(games_sales$Year_of_Release, na.rm = TRUE),
+                             max = max(games_sales$Year_of_Release, na.rm = TRUE), value = c(2000, 2016), step = 1)
+               ),
+               mainPanel(
+                 leafletOutput("mapaVentas")
+               )
+             )
+    ),
+    
+    tabPanel("Nube de Palabras",
+             sidebarLayout(
+               sidebarPanel(
+                 sliderInput("minFrecuencia", "Frecuencia mínima:", min = 1, max = 10, value = 2),
+                 sliderInput("maxPalabras", "Máximo de palabras:", min = 10, max = 200, value = 100)
+               ),
+               mainPanel(
+                 plotOutput("wordCloud")
+               )
+             )
+    ),
+    tabPanel("Comparación de Plataformas",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("plataformas_comparar", "Selecciona hasta 3 plataformas:",
+                             choices = unique(games_sales$Platform),
+                             selected = c("PS4", "X360", "Wii"),
+                             multiple = TRUE)
+               ),
+               mainPanel(
+                 plotlyOutput("comparacionPlataformas")
+               )
+             )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  # Ventas Globales
+  output$ventasPlot <- renderPlotly({
+    datos_filtrados <- games_sales %>% 
+      filter(Platform == input$plataforma, 
+             Genre == input$genero, 
+             Year_of_Release >= input$anio[1], 
+             Year_of_Release <= input$anio[2])
+    
+    p <- ggplot(datos_filtrados, aes(x = Year_of_Release, y = Global_Sales, fill = Genre)) +
+      geom_bar(stat = "identity") +
+      theme_minimal() +
+      labs(title = "Ventas Globales por Año", x = "Año", y = "Ventas (millones)")
+    
+    ggplotly(p)
+  })
+  
+  # Ventas por Plataforma según Género
+  output$ventasGenero <- renderPlotly({
+    datos_genero <- games_sales %>%
+      filter(Genre == input$genero_ventas) %>%
+      group_by(Platform) %>%
+      summarise(Total_Sales = sum(Global_Sales, na.rm = TRUE))
+    
+    p <- ggplot(datos_genero, aes(x = reorder(Platform, Total_Sales), y = Total_Sales, fill = Platform)) +
+      geom_bar(stat = "identity") +
+      coord_flip() +
+      theme_minimal() +
+      labs(title = "Ventas por Plataforma en Género Seleccionado", x = "Plataforma", y = "Ventas (millones)")
+    
+    ggplotly(p)
+  })
+  
+  # Ventas por Región
+  output$regionPlot <- renderPlotly({
+    datos_region <- games_sales %>%
+      filter(Name == input$nombre_juego) %>%
+      select(Name, all_of(input$region_comp))
+    
+    datos_long <- datos_region %>%
+      pivot_longer(-Name, names_to = "Region", values_to = "Ventas")
+    
+    p <- ggplot(datos_long, aes(x = reorder(Region, Ventas), y = Ventas, fill = Region)) +
+      geom_bar(stat = "identity", position = "dodge") +
+      theme_minimal() +
+      labs(title = paste("Ventas por Región para", input$nombre_juego), x = "Región", y = "Ventas (millones)")
+    
+    ggplotly(p)
+  })
+  
+  # Críticas por Género
+  output$lineCritica <- renderPlotly({
+    datos_critica <- games_sales %>% filter(Genre == input$genero_critica)
+    
+    p <- ggplot(datos_critica, aes(x = Critic_Score)) +
+      geom_line(stat = "count", color = "steelblue", size = 1) +
+      theme_minimal() +
+      labs(title = paste("Distribución de Puntuación de Crítica para", input$genero_critica), x = "Puntuación de Crítica", y = "Frecuencia")
+    
+    ggplotly(p)
+  })
+  
+  # Tabla de ventas globales
+  datos_tabla <- reactive({
+    games_sales %>%
+      filter(Platform == input$plataforma_tabla,
+             Genre == input$genero_tabla,
+             Year_of_Release >= input$anio_tabla[1],
+             Year_of_Release <= input$anio_tabla[2])
+  })
+  
+  output$tablaJuegos <- renderDT({
+    tabla <- datos_tabla()[, c("Name", "Platform", "Genre", "Global_Sales")]
+    datatable(tabla, options = list(pageLength = 15))
+  })
+  
+  # Mapa de ventas por región
+  datos_mapa <- reactive({
+    games_sales %>%
+      filter(Platform == input$plataforma_mapa,
+             Year_of_Release >= input$anio_mapa[1],
+             Year_of_Release <= input$anio_mapa[2])
+  })
+  
+  output$mapaVentas <- renderLeaflet({
+    ventas_region <- datos_mapa() %>%
+      summarise(NA_Sales = sum(NA_Sales, na.rm = TRUE),
+                EU_Sales = sum(EU_Sales, na.rm = TRUE),
+                JP_Sales = sum(JP_Sales, na.rm = TRUE),
+                Other_Sales = sum(Other_Sales, na.rm = TRUE))
+    
+    regiones <- data.frame(
+      region = c("North America", "Europe", "Japan", "Other"),
+      ventas = c(ventas_region$NA_Sales, ventas_region$EU_Sales, 
+                 ventas_region$JP_Sales, ventas_region$Other_Sales),
+      lat = c(40, 50, 36, 0),
+      lon = c(-100, 10, 138, 30)
+    )
+    
+    leaflet(regiones) %>%
+      addTiles() %>%
+      addCircles(lng = ~lon, lat = ~lat, weight = 1,
+                 radius = ~ventas * 50000,
+                 popup = ~paste(region, ":", ventas, "millones"))
+  })
+  
+  output$wordCloud <- renderPlot({
+    nombres <- games_sales$Name[!is.na(games_sales$Name) & games_sales$Name != ""]
+    
+    palabras <- Corpus(VectorSource(nombres))
+    palabras <- tm_map(palabras, content_transformer(tolower))
+    palabras <- tm_map(palabras, removePunctuation)
+    palabras <- tm_map(palabras, removeNumbers)
+    palabras <- tm_map(palabras, removeWords, stopwords("english"))
+    palabras <- tm_map(palabras, stripWhitespace)
+    
+    dtm <- TermDocumentMatrix(palabras)
+    m <- as.matrix(dtm)
+    palabras_freq <- sort(rowSums(m), decreasing = TRUE)
+    df <- data.frame(word = names(palabras_freq), freq = palabras_freq)
+    
+
+    wordcloud(words = df$word, freq = df$freq, min.freq = input$minFrecuencia,
+              max.words = input$maxPalabras, random.order = FALSE,
+              colors = brewer.pal(8, "Dark2"))
+  })
+  
+  output$comparacionPlataformas <- renderPlotly({
+    plataformas <- input$plataformas_comparar
+    
+    if (length(plataformas) == 0 || length(plataformas) > 3) {
+      return(NULL)
+    }
+    
+    datos_comparacion <- games_sales %>%
+      filter(Platform %in% plataformas) %>%
+      group_by(Year_of_Release, Platform) %>%
+      summarise(Global_Sales = sum(Global_Sales, na.rm = TRUE), .groups = "drop") %>%
+      filter(!is.na(Year_of_Release))
+    
+    p <- ggplot(datos_comparacion, aes(x = Year_of_Release, y = Global_Sales, color = Platform)) +
+      geom_line(size = 1.2) +
+      geom_point() +
+      theme_minimal() +
+      labs(title = "Comparación de Ventas Globales por Plataforma",
+           x = "Año",
+           y = "Ventas (millones)")
+    
+    ggplotly(p)
+  })
+  
+}
+
+shinyApp(ui, server)
+
+```
+
+
+
+
